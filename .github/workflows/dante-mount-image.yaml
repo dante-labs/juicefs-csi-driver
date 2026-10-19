@@ -1,5 +1,6 @@
 # Dante Labs: JuiceFS CE mount image built with Ceph's own librados (aes256k cephx keys, CVE-2025-30156).
 # Builds docker/ce.juicefs.Dockerfile with CEPH_RELEASE set, verifies the result, pushes to GHCR.
+# Runs on pushes to tentacle-librados that touch the Dockerfile or this workflow, or manually.
 name: dante-mount-image
 
 on:
