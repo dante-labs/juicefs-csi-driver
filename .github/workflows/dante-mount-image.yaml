@@ -1,0 +1,67 @@
+# Dante Labs: JuiceFS CE mount image built with Ceph's own librados (aes256k cephx keys, CVE-2025-30156).
+# Builds docker/ce.juicefs.Dockerfile with CEPH_RELEASE set, verifies the result, pushes to GHCR.
+name: dante-mount-image
+
+on:
+  push:
+    branches: [tentacle-librados]
+    paths: [docker/ce.juicefs.Dockerfile, .github/workflows/dante-mount-image.yaml]
+  workflow_dispatch:
+    inputs:
+      juicefs_ref:
+        description: juicefs tag to build
+        default: v1.4.1
+      ceph_release:
+        description: Ceph release repo (download.ceph.com/debian-<release>)
+        default: tentacle
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/dante-labs/juicefs-mount
+  JUICEFS_REF: ${{ inputs.juicefs_ref || 'v1.4.1' }}
+  CEPH_RELEASE: ${{ inputs.ceph_release || 'tentacle' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/ce.juicefs.Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            JUICEFS_REPO_BRANCH=main
+            JUICEFS_REPO_REF=${{ env.JUICEFS_REF }}
+            CEPH_RELEASE=${{ env.CEPH_RELEASE }}
+          load: true
+          tags: mount:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify juicefs runs and uses the new librados
+        run: |
+          docker run --rm mount:test sh -euc '
+            juicefs --version
+            dpkg-query -W librados2
+            ldd /usr/local/bin/juicefs | grep rados
+            v=$(dpkg-query -W -f="\${Version}" librados2)
+            case "$v" in 16.*) echo "still Debian Pacific librados: $v"; exit 1;; esac
+          '
+
+      - name: Push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          rados=$(docker run --rm mount:test dpkg-query -W -f='${Version}' librados2 | cut -d- -f1)
+          for t in "ce-${JUICEFS_REF}-ceph${rados}" "ce-${JUICEFS_REF}-ceph${rados}-${GITHUB_SHA::7}"; do
+            docker tag mount:test "$IMAGE:$t" && docker push "$IMAGE:$t"
+            echo "pushed $IMAGE:$t" >> "$GITHUB_STEP_SUMMARY"
+          done

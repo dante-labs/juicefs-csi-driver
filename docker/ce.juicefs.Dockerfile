@@ -19,6 +19,16 @@ ARG TARGETARCH
 ARG JUICEFS_REPO_URL=https://github.com/juicedata/juicefs
 ARG JUICEFS_REPO_BRANCH=main
 ARG JUICEFS_REPO_REF=${JUICEFS_REPO_BRANCH}
+ARG CEPH_RELEASE=
+
+# Optional: install librados from Ceph's own repo (e.g. CEPH_RELEASE=tentacle or squid) instead of Debian
+# bookworm's (Pacific 16.2.x). Needed for cephx aes256k keys (CVE-2025-30156) and newer Ceph clusters.
+# Empty (default) keeps the Debian packages.
+RUN if [ -n "${CEPH_RELEASE}" ]; then \
+      wget -qO- https://download.ceph.com/keys/release.asc | gpg --dearmor -o /usr/share/keyrings/ceph.gpg && \
+      echo "deb [signed-by=/usr/share/keyrings/ceph.gpg] https://download.ceph.com/debian-${CEPH_RELEASE}/ bookworm main" \
+        > /etc/apt/sources.list.d/ceph.list; \
+    fi
 
 RUN bash -c "if [[ ${TARGETARCH} == amd64 ]]; then mkdir -p /home/travis/.m2 && \
     wget -O /home/travis/.m2/foundationdb-clients_6.3.23-1_${TARGETARCH}.deb https://github.com/apple/foundationdb/releases/download/6.3.23/foundationdb-clients_6.3.23-1_${TARGETARCH}.deb && \
@@ -41,6 +51,15 @@ FROM debian:bookworm-slim
 ARG TARGETARCH
 COPY --from=binaryimage /usr/local/bin/juicefs /usr/local/bin/juicefs
 RUN apt-get update && apt-get install -y wget fuse3 gnupg2 curl procps iputils-ping strace iproute2 net-tools tcpdump lsof openssh-server openssh-client xxd lrzsz
+ARG CEPH_RELEASE=
+# Optional: install librados from Ceph's own repo (e.g. CEPH_RELEASE=tentacle or squid) instead of Debian
+# bookworm's (Pacific 16.2.x). Needed for cephx aes256k keys (CVE-2025-30156) and newer Ceph clusters.
+# Empty (default) keeps the Debian packages.
+RUN if [ -n "${CEPH_RELEASE}" ]; then \
+      wget -qO- https://download.ceph.com/keys/release.asc | gpg --dearmor -o /usr/share/keyrings/ceph.gpg && \
+      echo "deb [signed-by=/usr/share/keyrings/ceph.gpg] https://download.ceph.com/debian-${CEPH_RELEASE}/ bookworm main" \
+        > /etc/apt/sources.list.d/ceph.list; \
+    fi
 RUN bash -c "if [[ ${TARGETARCH} == amd64 ]]; then mkdir -p /home/travis/.m2 && \
     wget -O /home/travis/.m2/foundationdb-clients_6.3.23-1_${TARGETARCH}.deb https://github.com/apple/foundationdb/releases/download/6.3.23/foundationdb-clients_6.3.23-1_${TARGETARCH}.deb && \
     dpkg -i /home/travis/.m2/foundationdb-clients_6.3.23-1_${TARGETARCH}.deb && \
