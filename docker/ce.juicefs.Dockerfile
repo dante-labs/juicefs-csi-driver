@@ -67,6 +67,10 @@ RUN bash -c "if [[ ${TARGETARCH} == amd64 ]]; then mkdir -p /home/travis/.m2 && 
     echo deb [arch=${TARGETARCH}] https://download.gluster.org/pub/gluster/glusterfs/11/LATEST/Debian/bookworm/${TARGETARCH}/apt bookworm main > /etc/apt/sources.list.d/gluster.list && \
     apt-get update && apt-get install -y uuid-dev libglusterfs-dev glusterfs-common librados2 librados-dev; fi"
 RUN mkdir /var/run/sshd
+# openssh-server's postinst generates host keys at build time; in a public image those private keys are
+# shared by every pod and flagged by Trivy as embedded secrets. Drop them; run `ssh-keygen -A` before
+# starting sshd if you ever need it for debugging.
+RUN rm -f /etc/ssh/ssh_host_*
 
 RUN ln -s /usr/local/bin/juicefs /bin/mount.juicefs && /usr/local/bin/juicefs --version
 ENV K8S_VERSION v1.14.8
