@@ -1,0 +1,59 @@
+# Dante Labs: upstream juicefs-csi-driver image with Debian packages upgraded (docker/dante-csi.Dockerfile).
+# Fails if any fixable CRITICAL OS-package CVE remains, then pushes to GHCR.
+# Runs on pushes to tentacle-librados that touch the Dockerfile or this workflow, or manually.
+name: dante-csi-image
+
+on:
+  push:
+    branches: [tentacle-librados]
+    paths: [docker/dante-csi.Dockerfile, .github/workflows/dante-csi-image.yaml]
+  workflow_dispatch:
+    inputs:
+      csi_tag:
+        description: upstream juicedata/juicefs-csi-driver tag to patch
+        default: v0.33.3
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/dante-labs/juicefs-csi-driver
+  CSI_TAG: ${{ inputs.csi_tag || 'v0.33.3' }}
+  TRIVY: aquasec/trivy:0.76.2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: docker
+          file: docker/dante-csi.Dockerfile
+          platforms: linux/amd64
+          build-args: CSI_TAG=${{ env.CSI_TAG }}
+          pull: true
+          no-cache: true
+          load: true
+          tags: csi:test
+
+      - name: Verify driver runs and no fixable critical OS CVEs remain
+        run: |
+          docker run --rm --entrypoint juicefs-csi-driver csi:test --version
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY" image -q \
+            --pkg-types os --severity CRITICAL --ignore-unfixed --exit-code 1 csi:test
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY" image -q \
+            --severity CRITICAL,HIGH --ignore-unfixed --format table csi:test >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for t in "${CSI_TAG}-patched" "${CSI_TAG}-patched-${GITHUB_SHA::7}"; do
+            docker tag csi:test "$IMAGE:$t" && docker push "$IMAGE:$t"
+            echo "pushed $IMAGE:$t" >> "$GITHUB_STEP_SUMMARY"
+          done
